@@ -4,14 +4,14 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets AI assistants such as Claude and Cursor search the [Kalshi Eye](https://kalshieye.com) archive of prediction market data. It can find Kalshi, Polymarket and Limitless markets, show how a market's price moved, check what was recorded, and list the order book files you can download.
 
-Searching, price history and coverage need no account. Add a Kalshi Eye API key to also list daily Parquet files and get download links.
+It needs a Kalshi Eye API key: create one at [API keys](https://kalshieye.com/app/api/) (a free account works) and set it as `KALSHIEYE_API_KEY`.
 
 ## Install
 
 Claude Code:
 
 ```bash
-claude mcp add kalshieye -- uvx kalshieye-mcp
+claude mcp add kalshieye -e KALSHIEYE_API_KEY=clab_your_key -- uvx kalshieye-mcp
 ```
 
 Claude Desktop, Cursor and other clients (`claude_desktop_config.json`, `.cursor/mcp.json`, ...):
@@ -21,36 +21,31 @@ Claude Desktop, Cursor and other clients (`claude_desktop_config.json`, `.cursor
   "mcpServers": {
     "kalshieye": {
       "command": "uvx",
-      "args": ["kalshieye-mcp"]
+      "args": ["kalshieye-mcp"],
+      "env": { "KALSHIEYE_API_KEY": "clab_your_key" }
     }
   }
 }
 ```
 
-To list and download files too, add your key from [API keys](https://kalshieye.com/app/api/) to that entry:
-
-```json
-"env": { "KALSHIEYE_API_KEY": "clab_your_key" }
-```
-
-A missing or placeholder key is ignored, and a rejected key only affects the two file tools.
+Without a key, or with a placeholder, every tool answers with how to get one. Listing files and download links cover the datasets your plan includes.
 
 `uvx` comes with [uv](https://docs.astral.sh/uv/). With pip instead: `pip install kalshieye-mcp`, then use `kalshieye-mcp` as the command.
 
 ## Tools
 
-| Tool | What it does | Key |
-|---|---|---|
-| `search` | Find series, events and markets by keyword, venue, category or status | No |
-| `get_series` | One series: what it is, how often it runs, markets in the catalog, and days of data files | No |
-| `list_markets` | A series' most recent markets, newest first, with status and result | No |
-| `get_market` | One market's terms, status, result, and how much of it was recorded | No |
-| `market_price_history` | A short recorded YES bid/ask path (up to about 40 points) | No |
-| `list_datasets` | Every dataset: what it holds, columns, plan, days available | No |
-| `dataset_series` | Which series have files in a dataset, with days, rows and size | No |
-| `recording_status` | Whether recording is running, and the recorded share of recent days by venue | No |
-| `list_files` | Daily Parquet files for a dataset, date range and series, page by page | Yes |
-| `download_links` | Signed download URLs for up to 100 of those files (counts toward the monthly allowance) | Yes |
+| Tool | What it does |
+|---|---|
+| `search` | Find series, events and markets by keyword, venue, category or status |
+| `get_series` | One series: what it is, how often it runs, markets in the catalog, and days of data files |
+| `list_markets` | A series' most recent markets, newest first, with status and result |
+| `get_market` | One market's terms, status, result, and how much of it was recorded |
+| `market_price_history` | A short recorded YES bid/ask path (up to about 40 points) |
+| `list_datasets` | Every dataset: what it holds, columns, plan, days available |
+| `dataset_series` | Which series have files in a dataset, with days, rows and size |
+| `recording_status` | Whether recording is running, and the recorded share of recent days by venue |
+| `list_files` | Daily Parquet files for a dataset, date range and series, page by page |
+| `download_links` | Signed download URLs for up to 100 of those files (counts toward the monthly allowance) |
 
 Things to ask:
 

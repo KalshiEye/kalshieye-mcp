@@ -8,13 +8,13 @@
     "url": "https://github.com/KalshiEye/kalshieye-mcp",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "kalshieye-mcp",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
@@ -22,8 +22,8 @@
       "environmentVariables": [
         {
           "name": "KALSHIEYE_API_KEY",
-          "description": "Optional. A Kalshi Eye API key, for listing daily Parquet files and getting download links. Search, coverage and price history work without one.",
-          "isRequired": false,
+          "description": "Your Kalshi Eye API key (clab_...), from https://kalshieye.com/app/api/. Every tool needs it.",
+          "isRequired": true,
           "isSecret": true,
           "format": "string"
         }

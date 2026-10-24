@@ -1,8 +1,8 @@
 """Kalshi Eye MCP server: search and inspect the Kalshi Eye archive of prediction market data.
 
-Every tool reads the public Kalshi Eye API (https://kalshieye.com/docs/api/). Searching,
-coverage and price history need no account. Set KALSHIEYE_API_KEY to also list daily
-Parquet files and get download links for the datasets your plan includes.
+Every tool reads the Kalshi Eye API (https://kalshieye.com/docs/api/), which needs an API key:
+set KALSHIEYE_API_KEY (create one at https://kalshieye.com/app/api/). Listing files and download
+links cover the datasets your plan includes.
 """
 
 from __future__ import annotations
@@ -100,18 +100,14 @@ def _detail(r: httpx.Response) -> str:
         return r.text
 
 
-async def _call(method: str, path: str, *, params: dict[str, Any] | None = None, body: Any = None, needs_key: bool = False) -> Any:
+async def _call(method: str, path: str, *, params: dict[str, Any] | None = None, body: Any = None) -> Any:
     params = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
     key = _api_key()
+    if not key:
+        raise KalshiEyeError(f"Kalshi Eye needs an API key: set KALSHIEYE_API_KEY (create one at {KEYS_URL}).")
     r = await _request(method, path, params, body, key)
-    if r.status_code == 401 and key and not needs_key:
-        # A rejected key fails even public calls; those work without one.
-        _warn_once(f"Kalshi Eye rejected KALSHIEYE_API_KEY ({_detail(r)}); public tools run without it")
-        r = await _request(method, path, params, body, "")
     if r.status_code == 401:
-        if key:
-            raise KalshiEyeError(f"Kalshi Eye rejected the key in KALSHIEYE_API_KEY ({_detail(r)}). Check it at {KEYS_URL}.")
-        raise KalshiEyeError(f"This needs a Kalshi Eye API key: set KALSHIEYE_API_KEY (create one at {KEYS_URL}).")
+        raise KalshiEyeError(f"Kalshi Eye rejected the key in KALSHIEYE_API_KEY ({_detail(r)}). Check it at {KEYS_URL}.")
     if r.status_code >= 400:
         raise KalshiEyeError(f"{r.status_code}: {_detail(r)}")
     return r.json()
@@ -316,8 +312,8 @@ async def list_files(
     cursor: str | None = None,
     limit: int = 100,
 ) -> dict[str, Any]:
-    """Daily Parquet files for a dataset and date range (YYYY-MM-DD, UTC), optionally one series. Needs
-    KALSHIEYE_API_KEY. When next_cursor is set, call again with it for the next page."""
+    """Daily Parquet files for a dataset and date range (YYYY-MM-DD, UTC), optionally one series.
+    When next_cursor is set, call again with it for the next page."""
     params = {
         "dataset": dataset,
         "start_date": start_date,
@@ -326,12 +322,12 @@ async def list_files(
         "cursor": cursor,
         "limit": _clamp(limit, 1, 500),
     }
-    return await _call("GET", "/files", params=params, needs_key=True)
+    return await _call("GET", "/files", params=params)
 
 
 @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True))
 async def download_links(keys: list[str]) -> dict[str, Any]:
-    """Signed download URLs for up to 100 file keys from list_files. Needs KALSHIEYE_API_KEY.
+    """Signed download URLs for up to 100 file keys from list_files.
 
     The first download of a file in a month counts toward the plan's monthly allowance.
     """
@@ -339,7 +335,7 @@ async def download_links(keys: list[str]) -> dict[str, Any]:
         raise KalshiEyeError("Pass at least one file key from list_files.")
     if len(keys) > 100:
         raise KalshiEyeError(f"At most 100 keys per call ({len(keys)} given); call again for the rest.")
-    return await _call("POST", "/files/links", body={"keys": keys}, needs_key=True)
+    return await _call("POST", "/files/links", body={"keys": keys})
 
 
 def main() -> None:

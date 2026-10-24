@@ -18,28 +18,23 @@ def anyio_backend():
 def api(monkeypatch):
     """Answer API calls from a dict of path -> JSON, and record the requests.
 
-    Like the real API: an unknown path is a 404, a key-only path without a valid key is a 401, and any
-    request carrying an invalid key is a 401.
+    Like the real API: every call needs a valid key (401 otherwise), and an unknown path is a 404.
     """
     routes: dict[str, object] = {}
-    keyed: set[str] = set()
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         path = request.url.path.removeprefix("/api/v1")
-        auth = request.headers.get("Authorization", "")
-        if auth and auth != "Bearer clab_good":
-            return httpx.Response(401, json={"detail": "invalid token"})
-        if path in keyed and not auth:
-            return httpx.Response(401, json={"detail": "not authenticated"})
+        if request.headers.get("Authorization") != "Bearer clab_good":
+            return httpx.Response(401, json={"detail": "invalid api key"})
         if path not in routes:
             return httpx.Response(404, json={"detail": "not found"})
         return httpx.Response(200, json=routes[path])
 
     monkeypatch.setattr(server, "TRANSPORT", httpx.MockTransport(handler))
-    monkeypatch.delenv("KALSHIEYE_API_KEY", raising=False)
-    return routes, keyed, seen
+    monkeypatch.setenv("KALSHIEYE_API_KEY", "clab_good")
+    return routes, seen
 
 
 def _result(res):
@@ -56,7 +51,7 @@ async def test_lists_every_tool():
 
 
 async def test_search_trims_results_and_converts_times(api):
-    routes, _, seen = api
+    routes, seen = api
     routes["/search"] = {
         "categories": [{"id": "Crypto"}],
         "series": [{"id": "KXBTC15M", "label": "Bitcoin price up down", "next_close_ts": 1791850500.0, "extra": "x"}],
@@ -73,7 +68,7 @@ async def test_search_trims_results_and_converts_times(api):
 
 
 async def test_get_series_reports_file_days(api):
-    routes, _, _ = api
+    routes, _ = api
     routes["/series/KXFED"] = {"series": {"id": "KXFED", "label": "Fed funds rate"}, "markets_total": 258, "events_total": 9, "days_total": 30}
     routes["/coverage/series"] = {"series": {"KXFED": {"days": 12, "first_date": "2026-10-12", "last_date": "2026-10-23", "datasets": ["trades"]}}}
     async with Client(server.server) as client:
@@ -83,7 +78,7 @@ async def test_get_series_reports_file_days(api):
 
 
 async def test_price_history(api):
-    routes, _, _ = api
+    routes, _ = api
     routes["/markets/T"] = {"market": {"ticker": "T"}}
     routes["/markets/T/preview"] = {
         "ticker": "T",
@@ -101,7 +96,7 @@ async def test_price_history(api):
 
 
 async def test_price_history_rejects_unknown_ticker_without_building_a_preview(api):
-    _, _, seen = api
+    _, seen = api
     async with Client(server.server) as client:
         res = await client.call_tool("market_price_history", {"ticker": "NOPE-XYZ"})
     assert res.is_error and "404" in res.content[0].text
@@ -109,58 +104,43 @@ async def test_price_history_rejects_unknown_ticker_without_building_a_preview(a
 
 
 async def test_rejects_ids_that_are_not_ids(api):
-    _, _, seen = api
+    _, seen = api
     async with Client(server.server) as client:
         res = await client.call_tool("get_market", {"ticker": "../series/KXNFLGAME"})
     assert res.is_error and "not a valid market ticker" in res.content[0].text
     assert seen == []
 
 
-async def test_key_tools_explain_a_missing_key(api):
-    _, keyed, _ = api
-    keyed.add("/files")
-    async with Client(server.server) as client:
-        res = await client.call_tool("list_files", {"dataset": "trades", "start_date": "2026-10-13", "end_date": "2026-10-13"})
-    assert res.is_error
-    assert "needs a Kalshi Eye API key" in res.content[0].text
+async def test_every_tool_needs_a_key(api, monkeypatch):
+    _, seen = api
+    for value in (None, "optional: clab_..."):  # unset, or a placeholder left in a config
+        if value is None:
+            monkeypatch.delenv("KALSHIEYE_API_KEY", raising=False)
+        else:
+            monkeypatch.setenv("KALSHIEYE_API_KEY", value)
+        async with Client(server.server) as client:
+            res = await client.call_tool("search", {"query": "fed"})
+        assert res.is_error and "needs an API key" in res.content[0].text
+    assert seen == []
 
 
-async def test_sends_the_key_when_set(api, monkeypatch):
-    routes, keyed, seen = api
+async def test_sends_the_key(api):
+    routes, seen = api
     routes["/files"] = {"files": [], "next_cursor": None}
-    keyed.add("/files")
-    monkeypatch.setenv("KALSHIEYE_API_KEY", "clab_good")
     async with Client(server.server) as client:
         await client.call_tool("list_files", {"dataset": "trades", "start_date": "2026-10-13", "end_date": "2026-10-13", "cursor": "abc"})
     assert seen[0].headers["Authorization"] == "Bearer clab_good"
     assert seen[0].url.params["cursor"] == "abc"
 
 
-async def test_a_placeholder_key_is_ignored(api, monkeypatch):
-    routes, _, seen = api
-    routes["/search"] = {"series": [], "events": [], "markets": []}
-    monkeypatch.setenv("KALSHIEYE_API_KEY", "optional: clab_...")
-    async with Client(server.server) as client:
-        res = await client.call_tool("search", {"query": "fed"})
-    assert not res.is_error
-    assert "Authorization" not in seen[0].headers
-
-
-async def test_a_rejected_key_does_not_break_public_tools(api, monkeypatch):
-    routes, keyed, seen = api
-    routes["/search"] = {"series": [], "events": [], "markets": []}
-    keyed.add("/files")
+async def test_a_rejected_key_says_so(api, monkeypatch):
     monkeypatch.setenv("KALSHIEYE_API_KEY", "clab_revoked")
     async with Client(server.server) as client:
-        ok = await client.call_tool("search", {"query": "fed"})
-        bad = await client.call_tool("list_files", {"dataset": "trades", "start_date": "2026-10-13", "end_date": "2026-10-13"})
-    assert not ok.is_error
-    assert [r.headers.get("Authorization") for r in seen[:2]] == ["Bearer clab_revoked", None]
-    assert bad.is_error and "rejected the key" in bad.content[0].text
+        res = await client.call_tool("search", {"query": "fed"})
+    assert res.is_error and "rejected the key" in res.content[0].text
 
 
-async def test_download_links_limits(api, monkeypatch):
-    monkeypatch.setenv("KALSHIEYE_API_KEY", "clab_good")
+async def test_download_links_limits(api):
     async with Client(server.server) as client:
         res = await client.call_tool("download_links", {"keys": [f"k{i}" for i in range(101)]})
     assert res.is_error and "At most 100 keys" in res.content[0].text
