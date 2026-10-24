@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kalshieye-mcp"
+version = "0.1.0"
+description = "MCP server for Kalshi Eye: search Kalshi, Polymarket and Limitless markets, recorded order book history, coverage and dataset files from AI assistants."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+keywords = ["mcp", "model context protocol", "kalshi", "polymarket", "prediction markets", "order book", "market data"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Intended Audience :: Science/Research",
+  "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = ["mcp>=2.0,<3", "httpx>=0.27"]
+
+[project.scripts]
+kalshieye-mcp = "kalshieye_mcp.server:main"
+
+[project.urls]
+Homepage = "https://kalshieye.com"
+Documentation = "https://kalshieye.com/docs/api/"
+Source = "https://github.com/KalshiEye/kalshieye-mcp"
+
+[tool.setuptools.packages.find]
+where = ["src"]

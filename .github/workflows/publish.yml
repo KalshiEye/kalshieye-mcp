@@ -1,0 +1,65 @@
+name: Publish
+
+# Runs on a version tag (v0.1.0): PyPI first, then the MCP Registry, which checks that the
+# PyPI package's README names this server (mcp-name). Both trust this workflow through OIDC,
+# so no token is stored in the repository.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tag, pyproject and server.json agree on the version
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, pyproject $version"; exit 1; }
+          test "$(jq -r .version server.json)" = "$version" || { echo "server.json version differs"; exit 1; }
+          test "$(jq -r '.packages[0].version' server.json)" = "$version" || { echo "server.json package version differs"; exit 1; }
+      - run: pip install pytest anyio build .
+      - run: pytest -q
+      - run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  mcp-registry:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for the release on PyPI
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          for i in $(seq 1 30); do
+            curl -sf "https://pypi.org/pypi/kalshieye-mcp/$version/json" > /dev/null && exit 0
+            sleep 10
+          done
+          echo "kalshieye-mcp $version is not on PyPI yet"; exit 1
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish
