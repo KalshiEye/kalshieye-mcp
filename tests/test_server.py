@@ -86,12 +86,18 @@ async def test_price_history(api):
         "start_ts": 1791850000.0,
         "end_ts": 1791850500.0,
         "coverage": {"has_l2": True},
-        "path": [{"ts": 1791850000.0, "yes_best_bid": 0.4, "yes_best_ask": 0.42}],
+        "path_source": "busiest",
+        "path": [
+            {"ts": 1791850100.0, "yes_best_bid": 0.4, "yes_best_ask": 0.42},
+            {"ts": 1791850400.0, "yes_best_bid": 0.45, "yes_best_ask": 0.47},
+        ],
     }
     async with Client(server.server) as client:
         out = _result(await client.call_tool("market_price_history", {"ticker": "T"}))
-    assert out["path"] == [{"time_utc": "2026-10-13T00:06:40Z", "yes_bid": 0.4, "yes_ask": 0.42}]
-    assert out["window_start_utc"] == "2026-10-13T00:06:40Z" and out["has_full_order_book"] is True
+    assert out["path"][0] == {"time_utc": "2026-10-13T00:08:20Z", "yes_bid": 0.4, "yes_ask": 0.42}
+    # the window is the span the points cover, not the preview's start_ts / end_ts
+    assert (out["window_start_utc"], out["window_end_utc"]) == ("2026-10-13T00:08:20Z", "2026-10-13T00:13:20Z")
+    assert out["path_source"] == "busiest" and out["has_full_order_book"] is True
     assert "note" not in out
 
 
