@@ -28,8 +28,9 @@ INSTRUCTIONS = """\
 Kalshi Eye records prediction market order books around the clock and publishes each UTC day
 as Parquet files: Kalshi since October 12, 2026; Polymarket, Limitless and Chainlink prices
 since October 15, 2026. Use search to find series, events and markets; get_series and
-get_market for details; market_price_history for a short recorded YES bid/ask path; coverage
-tools to see what was recorded; list_datasets for file schemas and plans. Prices are dollars
+get_market for details and how much of a market was recorded; market_price_history for its
+recorded YES bid/ask path; recording_status for what is recording now; list_datasets for file
+schemas and plans. Prices are dollars
 between 0 and 1 (the market's probability). Times are UTC. A YES ask on Kalshi is 1 minus the
 best NO bid.
 """
@@ -154,7 +155,8 @@ async def search(
 
     Examples: "bitcoin 15 minute", "fed rate", "NFL", "New York temperature".
     category is an archive category such as Crypto, Economics, Sports or Politics.
-    status "live" keeps markets still trading. limit is 1 to 50 per kind.
+    status "live" keeps markets still trading. limit is 1 to 50 series; events and markets are the
+    10 best matches.
     """
     limit = _clamp(limit, 1, 50)
     d = await _call("GET", "/search", params={"q": query, "venue": venue, "category": category, "status": status, "limit": limit})
@@ -223,8 +225,9 @@ async def get_market(ticker: str) -> dict[str, Any]:
 
 @server.tool(annotations=READ)
 async def market_price_history(ticker: str) -> dict[str, Any]:
-    """A short recorded YES best bid and ask path for one market: up to about 40 points over the window the
-    archive's preview covers, usually the market's most recent recorded stretch rather than its whole life.
+    """The recorded YES best bid and ask path for one market: up to about 240 points over the market's
+    busiest stretch (its whole life when that is short). path_source says which: "life" or "busiest".
+    The window is the span the points cover.
 
     For every order book change, use the daily Parquet files (list_datasets, list_files). Previews are built
     for Kalshi markets; Polymarket and Limitless markets may return no points.
@@ -239,8 +242,10 @@ async def market_price_history(ticker: str) -> dict[str, Any]:
     out: dict[str, Any] = {
         "ticker": d.get("ticker") or ticker,
         "series": d.get("series"),
-        "window_start_utc": _iso(d.get("start_ts")),
-        "window_end_utc": _iso(d.get("end_ts")),
+        # The span the points cover, not the preview's whole window (the 24 hours before close).
+        "window_start_utc": path[0]["time_utc"] if path else _iso(d.get("start_ts")),
+        "window_end_utc": path[-1]["time_utc"] if path else _iso(d.get("end_ts")),
+        "path_source": d.get("path_source"),
         "has_full_order_book": (d.get("coverage") or {}).get("has_l2"),
         "path": path,
     }

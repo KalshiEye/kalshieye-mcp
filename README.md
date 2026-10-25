@@ -40,7 +40,7 @@ Without a key, or with a placeholder, every tool answers with how to get one. Li
 | `get_series` | One series: what it is, how often it runs, markets in the catalog, and days of data files |
 | `list_markets` | A series' most recent markets, newest first, with status and result |
 | `get_market` | One market's terms, status, result, and how much of it was recorded |
-| `market_price_history` | A short recorded YES bid/ask path (up to about 40 points) |
+| `market_price_history` | The recorded YES bid/ask path, up to about 240 points over the market's busiest stretch |
 | `list_datasets` | Every dataset: what it holds, columns, plan, days available |
 | `dataset_series` | Which series have files in a dataset, with days, rows and size |
 | `recording_status` | Whether recording is running, and the recorded share of recent days by venue |
