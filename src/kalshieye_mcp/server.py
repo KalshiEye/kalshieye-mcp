@@ -161,11 +161,12 @@ async def search(
     series is one page: limit is 1 to 50 series, series_total counts every matching series, and when
     has_more is true, call again with offset + limit for the next page.
 
-    events and markets are the 10 best matches, not all of them. markets_found is the exact number of
-    markets that more_markets lists, and more_markets is a GET /markets call that pages (list_markets
-    with its q runs it). Both are null when that listing does not apply (a venue filter other than
-    Kalshi); then list all of each series' markets with list_markets. events_found counts the
-    matching events, and is null when the series searched held more events than it read.
+    events and markets are the 10 best matches, not all of them. more_markets is the GET /markets call
+    that lists every market holding the query's words on every venue (list_markets with its q, and
+    venue when given, runs it), and markets_found is exactly how many it lists. Both are null when the
+    query has no word to match (only dates or single letters); then list each series' markets with
+    list_markets. events_found counts the matching events, and is null when the series searched held
+    more events than it read.
     """
     d = await _call(
         "GET",
@@ -223,18 +224,20 @@ async def list_markets(
     status: str | None = None,
     limit: int = 20,
     offset: int = 0,
+    venue: Literal["kalshi", "polymarket", "limitless", "chainlink"] | None = None,
 ) -> dict[str, Any]:
     """Markets a page at a time, newest first, with status, result and times.
 
-    With series, one series' markets (q then narrows them by text in the ticker, title or event). Without
-    series, every Kalshi market, and q keeps those with each of its whole words in the ticker, series,
-    title, event or category. status is a market status such as active, closed or finalized.
+    With series, one series' markets (q then narrows them by text in the ticker, title or event). With q
+    and no series, markets on every venue holding each of its whole words in the ticker, series, title,
+    event or category (venue narrows it to one venue). With neither, every Kalshi market by close.
+    status is a market status such as active, closed or finalized.
 
-    limit is 1 to 200 a page. total counts the series' matching markets (null on the all-markets list).
-    To get every market, pass next_offset back as offset until it is null.
+    limit is 1 to 200 a page. total counts every match (null only on the plain all-markets list). To get
+    every market, pass next_offset back as offset until it is null.
     """
     offset = _clamp(offset, 0, 10_000_000)
-    params = {"series": series, "q": q, "status": status, "limit": _clamp(limit, 1, 200), "offset": offset}
+    params = {"series": series, "q": q, "venue": venue, "status": status, "limit": _clamp(limit, 1, 200), "offset": offset}
     d = await _call("GET", "/markets", params=params)
     markets = [_pick(m, MARKET_KEYS) for m in d.get("markets", [])]
     return {
