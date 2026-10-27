@@ -36,13 +36,13 @@ Without a key, or with a placeholder, every tool answers with how to get one. Li
 
 | Tool | What it does |
 |---|---|
-| `search` | Find series, events and markets by keyword, venue, category or status |
+| `search` | Find series, events and markets by keyword, venue, category or status. Series come a page at a time (`series_total`, `has_more`, `offset`); events and markets are the 10 best matches, with `events_found`, `markets_found` and `more_markets`, the paged call that lists every matching market |
 | `get_series` | One series: what it is, how often it runs, markets in the catalog, and days of data files |
-| `list_markets` | A series' most recent markets, newest first, with status and result |
+| `list_markets` | A series' markets, or every Kalshi market matching `q`, newest first, with status and result. A page at a time: `total` (null on the all-markets list) and `next_offset`, passed back as `offset` until it is null |
 | `get_market` | One market's terms, status, result, and how much of it was recorded |
-| `market_price_history` | The recorded YES bid/ask path, up to about 240 points over the market's busiest stretch |
+| `market_price_history` | The recorded YES bid/ask path, up to about 240 points over the market's busiest stretch; `path_source` is `life`, `busiest` or `window` |
 | `list_datasets` | Every dataset: what it holds, columns, plan, days available |
-| `dataset_series` | Which series have files in a dataset, with days, rows and size |
+| `dataset_series` | Which series have files in a dataset, with days, rows and size, up to 500 a page with `total` and `next_offset` |
 | `recording_status` | Whether recording is running, and the recorded share of recent days by venue |
 | `list_files` | Daily Parquet files for a dataset, date range and series, page by page |
 | `download_links` | Signed download URLs for up to 100 of those files (counts toward the monthly allowance) |

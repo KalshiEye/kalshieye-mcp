@@ -150,20 +150,44 @@ async def search(
     category: str | None = None,
     status: Literal["live", "closed"] | None = None,
     limit: int = 10,
+    offset: int = 0,
 ) -> dict[str, Any]:
     """Search Kalshi, Polymarket and Limitless series, events and markets by keyword.
 
     Examples: "bitcoin 15 minute", "fed rate", "NFL", "New York temperature".
     category is an archive category such as Crypto, Economics, Sports or Politics.
-    status "live" keeps markets still trading. limit is 1 to 50 series; events and markets are the
-    10 best matches.
+    status "live" keeps markets still trading.
+
+    series is one page: limit is 1 to 50 series, series_total counts every matching series, and when
+    has_more is true, call again with offset + limit for the next page.
+
+    events and markets are the 10 best matches, not all of them. markets_found is the exact number of
+    markets that more_markets lists, and more_markets is a GET /markets call that pages (list_markets
+    with its q runs it). Both are null when that listing does not apply (a venue filter other than
+    Kalshi); then list all of each series' markets with list_markets. events_found counts the
+    matching events, and is null when the series searched held more events than it read.
     """
-    limit = _clamp(limit, 1, 50)
-    d = await _call("GET", "/search", params={"q": query, "venue": venue, "category": category, "status": status, "limit": limit})
+    d = await _call(
+        "GET",
+        "/search",
+        params={
+            "q": query,
+            "venue": venue,
+            "category": category,
+            "status": status,
+            "limit": _clamp(limit, 1, 50),
+            "offset": _clamp(offset, 0, 10_000_000),
+        },
+    )
     return {
-        "series": [_pick(s, SERIES_KEYS) for s in d.get("series", [])[:limit]],
-        "events": [_pick(e, EVENT_KEYS) for e in d.get("events", [])[:limit]],
-        "markets": [_pick(m, MARKET_KEYS) for m in d.get("markets", [])[:limit]],
+        "series_total": d.get("series_total"),
+        "has_more": d.get("has_more"),
+        "series": [_pick(s, SERIES_KEYS) for s in d.get("series", [])],
+        "events_found": d.get("events_found"),
+        "events": [_pick(e, EVENT_KEYS) for e in d.get("events", [])],
+        "markets_found": d.get("markets_found"),
+        "more_markets": d.get("more_markets"),
+        "markets": [_pick(m, MARKET_KEYS) for m in d.get("markets", [])],
     }
 
 
@@ -193,13 +217,33 @@ async def get_series(series_id: str) -> dict[str, Any]:
 
 
 @server.tool(annotations=READ)
-async def list_markets(series: str, status: str | None = None, limit: int = 20) -> dict[str, Any]:
-    """The most recent markets in one series, newest first, with status, result and times.
+async def list_markets(
+    series: str | None = None,
+    q: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Markets a page at a time, newest first, with status, result and times.
 
-    status is a market status such as active, closed or finalized. limit is 1 to 200.
+    With series, one series' markets (q then narrows them by text in the ticker, title or event). Without
+    series, every Kalshi market, and q keeps those with each of its whole words in the ticker, series,
+    title, event or category. status is a market status such as active, closed or finalized.
+
+    limit is 1 to 200 a page. total counts the series' matching markets (null on the all-markets list).
+    To get every market, pass next_offset back as offset until it is null.
     """
-    d = await _call("GET", "/markets", params={"series": series, "status": status, "limit": _clamp(limit, 1, 200)})
-    return {"count": d.get("count"), "markets": [_pick(m, MARKET_KEYS) for m in d.get("markets", [])]}
+    offset = _clamp(offset, 0, 10_000_000)
+    params = {"series": series, "q": q, "status": status, "limit": _clamp(limit, 1, 200), "offset": offset}
+    d = await _call("GET", "/markets", params=params)
+    markets = [_pick(m, MARKET_KEYS) for m in d.get("markets", [])]
+    return {
+        "total": d.get("total"),
+        "offset": offset,
+        "returned": len(markets),
+        "next_offset": d.get("next_offset"),
+        "markets": markets,
+    }
 
 
 @server.tool(annotations=READ)
@@ -226,8 +270,9 @@ async def get_market(ticker: str) -> dict[str, Any]:
 @server.tool(annotations=READ)
 async def market_price_history(ticker: str) -> dict[str, Any]:
     """The recorded YES best bid and ask path for one market: up to about 240 points over the market's
-    busiest stretch (its whole life when that is short). path_source says which: "life" or "busiest".
-    The window is the span the points cover.
+    busiest stretch (its whole life when that is short). path_source says which: "life" or "busiest",
+    or "window" when the 1-minute bars give no path and the points come from the recorded order book in
+    the preview's window. The window is the span the points cover.
 
     For every order book change, use the daily Parquet files (list_datasets, list_files). Previews are built
     for Kalshi markets; Polymarket and Limitless markets may return no points.
@@ -282,11 +327,25 @@ async def list_datasets() -> dict[str, Any]:
 
 
 @server.tool(annotations=READ)
-async def dataset_series(dataset_id: str, query: str | None = None, limit: int = 20) -> dict[str, Any]:
-    """Which series have files in one dataset (for example book_l2 or trades), with days, rows and size."""
+async def dataset_series(dataset_id: str, query: str | None = None, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    """Which series have files in one dataset (for example book_l2 or trades), with days, rows and size.
+
+    limit is 1 to 500 series a page and total counts them all. When next_offset is set, call again with
+    it as offset for the next page.
+    """
     seg = _segment(dataset_id, "dataset id")
-    d = await _call("GET", f"/datasets/{seg}/series", params={"q": query, "limit": _clamp(limit, 1, 200)})
-    return {"dataset": d.get("dataset"), "total": d.get("total"), "series": d.get("series", [])}
+    offset = _clamp(offset, 0, 100_000)
+    d = await _call("GET", f"/datasets/{seg}/series", params={"q": query, "limit": _clamp(limit, 1, 500), "offset": offset})
+    rows = d.get("series", [])
+    total = d.get("total")
+    more = bool(rows) and total is not None and offset + len(rows) < total
+    return {
+        "dataset": d.get("dataset"),
+        "total": total,
+        "offset": offset,
+        "next_offset": offset + len(rows) if more else None,
+        "series": rows,
+    }
 
 
 @server.tool(annotations=READ)
