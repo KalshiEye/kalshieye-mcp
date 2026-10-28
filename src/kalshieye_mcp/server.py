@@ -161,12 +161,13 @@ async def search(
     series is one page: limit is 1 to 50 series, series_total counts every matching series, and when
     has_more is true, call again with offset + limit for the next page.
 
-    events and markets are the 10 best matches, not all of them. more_markets is the GET /markets call
-    that lists every market holding the query's words on every venue (list_markets with its q, and
-    venue when given, runs it), and markets_found is exactly how many it lists. Both are null when the
-    query has no word to match (only dates or single letters); then list each series' markets with
-    list_markets. events_found counts the matching events, and is null when the series searched held
-    more events than it read.
+    Series lead: a query naming a series finds it first. events and markets are the 10 best whose own
+    words (title, ticker, event, category, series name) hold every query word: still trading and
+    closing soonest first, then the latest closed. They are not all of them: list_events and
+    list_markets with q (and venue when given) list every match, as more_events / more_markets say.
+    events_found and markets_found count those lists exactly up to 10,000; past that the count is
+    10,000 and events_found_exact / markets_found_exact is false (say "10,000+"). All are null when
+    the query has no word to match (only dates or single letters).
     """
     d = await _call(
         "GET",
@@ -185,8 +186,11 @@ async def search(
         "has_more": d.get("has_more"),
         "series": [_pick(s, SERIES_KEYS) for s in d.get("series", [])],
         "events_found": d.get("events_found"),
+        "events_found_exact": d.get("events_found_exact"),
+        "more_events": d.get("more_events"),
         "events": [_pick(e, EVENT_KEYS) for e in d.get("events", [])],
         "markets_found": d.get("markets_found"),
+        "markets_found_exact": d.get("markets_found_exact"),
         "more_markets": d.get("more_markets"),
         "markets": [_pick(m, MARKET_KEYS) for m in d.get("markets", [])],
     }
@@ -225,27 +229,62 @@ async def list_markets(
     limit: int = 20,
     offset: int = 0,
     venue: Literal["kalshi", "polymarket", "limitless", "chainlink"] | None = None,
+    cursor: str | None = None,
 ) -> dict[str, Any]:
     """Markets a page at a time, newest first, with status, result and times.
 
     With series, one series' markets (q then narrows them by text in the ticker, title or event). With q
-    and no series, markets on every venue holding each of its whole words in the ticker, series, title,
-    event or category (venue narrows it to one venue). With neither, every Kalshi market by close.
-    status is a market status such as active, closed or finalized.
+    and no series, markets on every venue holding each of its whole words in the ticker, series and its
+    name, title, event or category (venue narrows it to one venue). With neither, every Kalshi market by
+    close. status is a market status such as active, closed or finalized.
 
-    limit is 1 to 200 a page. total counts every match (null only on the plain all-markets list). To get
-    every market, pass next_offset back as offset until it is null.
+    limit is 1 to 200 a page. total counts every match (null only on the plain all-markets list); with q
+    it is exact up to 10,000, and past that it is 10,000 with total_exact false (say "10,000+"). To get
+    every market: with q, pass next_cursor back as cursor until it is null; otherwise pass next_offset
+    back as offset until it is null.
     """
     offset = _clamp(offset, 0, 10_000_000)
-    params = {"series": series, "q": q, "venue": venue, "status": status, "limit": _clamp(limit, 1, 200), "offset": offset}
+    params = {"series": series, "q": q, "venue": venue, "status": status, "limit": _clamp(limit, 1, 200), "offset": offset,
+              "cursor": cursor}
     d = await _call("GET", "/markets", params=params)
     markets = [_pick(m, MARKET_KEYS) for m in d.get("markets", [])]
     return {
         "total": d.get("total"),
+        "total_exact": d.get("total_exact"),
         "offset": offset,
         "returned": len(markets),
         "next_offset": d.get("next_offset"),
+        "next_cursor": d.get("next_cursor"),
         "markets": markets,
+    }
+
+
+@server.tool(annotations=READ)
+async def list_events(
+    query: str,
+    venue: Literal["kalshi", "polymarket", "limitless", "chainlink"] | None = None,
+    category: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Every event on every venue whose words (id, title, subtitle, series id and name, category) hold
+    each word of query, newest close first, a page at a time: what search's more_events lists.
+
+    status is live, closed or settled. limit is 1 to 200 a page. total is exact up to 10,000, and past
+    that it is 10,000 with total_exact false (say "10,000+"). Pass next_cursor back as cursor until it
+    is null to get every event; get_series or list_markets(series=...) open one.
+    """
+    params = {"q": query, "venue": venue, "category": category, "status": status, "limit": _clamp(limit, 1, 200),
+              "cursor": cursor}
+    d = await _call("GET", "/events", params=params)
+    events = [_pick(e, EVENT_KEYS) for e in d.get("events", [])]
+    return {
+        "total": d.get("total"),
+        "total_exact": d.get("total_exact"),
+        "returned": len(events),
+        "next_cursor": d.get("next_cursor"),
+        "events": events,
     }
 
 

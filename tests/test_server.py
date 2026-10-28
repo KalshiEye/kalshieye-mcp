@@ -45,7 +45,7 @@ async def test_lists_every_tool():
     async with Client(server.server) as client:
         names = {t.name for t in (await client.list_tools()).tools}
     assert names == {
-        "search", "get_series", "list_markets", "get_market", "market_price_history",
+        "search", "get_series", "list_markets", "list_events", "get_market", "market_price_history",
         "list_datasets", "dataset_series", "recording_status", "list_files", "download_links",
     }
 
@@ -75,8 +75,11 @@ async def test_search_pages_series_and_says_how_many_events_and_markets_matched(
         "markets": [{"ticker": f"M{i}"} for i in range(10)],
         "series_total": 7,
         "has_more": True,
-        "events_found": None,
-        "markets_found": 143,
+        "events_found": 37,
+        "events_found_exact": True,
+        "more_events": "GET /api/v1/events?q=fed",
+        "markets_found": 10000,
+        "markets_found_exact": False,
         "more_markets": "GET /api/v1/markets?q=fed",
     }
     async with Client(server.server) as client:
@@ -85,8 +88,9 @@ async def test_search_pages_series_and_says_how_many_events_and_markets_matched(
     assert (out["series_total"], out["has_more"]) == (7, True)
     # limit counts series; events and markets are the API's best 10, not cut to limit
     assert len(out["series"]) == 2 and len(out["events"]) == 10 and len(out["markets"]) == 10
-    assert out["events_found"] is None
-    assert (out["markets_found"], out["more_markets"]) == (143, "GET /api/v1/markets?q=fed")
+    assert (out["events_found"], out["events_found_exact"], out["more_events"]) == (37, True, "GET /api/v1/events?q=fed")
+    # past 10,000 the count is a labeled lower bound
+    assert (out["markets_found"], out["markets_found_exact"], out["more_markets"]) == (10000, False, "GET /api/v1/markets?q=fed")
 
 
 async def test_list_markets_pages_one_series(api):
@@ -114,6 +118,27 @@ async def test_list_markets_searches_every_kalshi_market(api):
         out = _result(await client.call_tool("list_markets", {"q": "championship"}))
     assert dict(seen[0].url.params) == {"q": "championship", "limit": "20", "offset": "0"}
     assert out["total"] is None and out["next_offset"] is None and out["returned"] == 1
+
+
+async def test_list_markets_pages_a_word_search_by_cursor(api):
+    routes, seen = api
+    routes["/markets"] = {"count": 1, "total": 10000, "total_exact": False, "offset": 0, "next_offset": None,
+                          "next_cursor": "c2", "markets": [{"ticker": "KXBTCD-26OCT28-T1"}]}
+    async with Client(server.server) as client:
+        out = _result(await client.call_tool("list_markets", {"q": "bitcoin", "cursor": "c1", "limit": 1}))
+    assert dict(seen[0].url.params) == {"q": "bitcoin", "limit": "1", "offset": "0", "cursor": "c1"}
+    assert (out["total"], out["total_exact"], out["next_cursor"]) == (10000, False, "c2")
+
+
+async def test_list_events_pages_every_event_holding_the_words(api):
+    routes, seen = api
+    routes["/events"] = {"count": 2, "total": 180, "total_exact": True, "next_cursor": "e2",
+                         "events": [{"id": "KXNBAGAME-26OCT28LALBOS", "venue": "kalshi", "extra": 1}, {"id": "pm:lakers-celtics"}]}
+    async with Client(server.server) as client:
+        out = _result(await client.call_tool("list_events", {"query": "lakers", "venue": "kalshi", "limit": 2}))
+    assert dict(seen[0].url.params) == {"q": "lakers", "venue": "kalshi", "limit": "2"}
+    assert (out["total"], out["total_exact"], out["returned"], out["next_cursor"]) == (180, True, 2, "e2")
+    assert out["events"][0] == {"id": "KXNBAGAME-26OCT28LALBOS", "venue": "kalshi"}
 
 
 async def test_dataset_series_pages(api):
