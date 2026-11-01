@@ -2,9 +2,9 @@
 
 <!-- mcp-name: io.github.KalshiEye/kalshieye-mcp -->
 
-An [MCP](https://modelcontextprotocol.io) server that lets AI assistants such as Claude and Cursor search the [Kalshi Eye](https://kalshieye.com) archive of prediction market data. It can find Kalshi, Polymarket and Limitless markets, show how a market's price moved, check what was recorded, and list the order book files you can download.
+An [MCP](https://modelcontextprotocol.io) server that lets AI assistants such as Claude and Cursor search the [Kalshi Eye](https://kalshieye.com/?utm_source=github&utm_medium=readme&utm_campaign=kalshieye-mcp) archive of prediction market data. It can find Kalshi, Polymarket and Limitless markets, show how a market's price moved, check what was recorded, and list the order book files you can download.
 
-It needs a Kalshi Eye API key: create one at [API keys](https://kalshieye.com/app/api/) (a free account works) and set it as `KALSHIEYE_API_KEY`.
+It needs a Kalshi Eye API key: create one at [API keys](https://kalshieye.com/app/api/?utm_source=github&utm_medium=readme&utm_campaign=kalshieye-mcp) (a free account works) and set it as `KALSHIEYE_API_KEY`.
 
 ## Install
 
